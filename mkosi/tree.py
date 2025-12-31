@@ -15,12 +15,14 @@ from mkosi.log import die
 from mkosi.run import SandboxProtocol, nosandbox, run, workdir
 from mkosi.sandbox import (
     BTRFS_SUPER_MAGIC,
+    CAP_MAC_ADMIN,
     FS_NOCOW_FL,
     OVERLAYFS_SUPER_MAGIC,
     btrfs_subvol_create,
     btrfs_subvol_delete,
     btrfs_subvol_snapshot,
     chattr,
+    have_effective_cap,
     lsattr,
     statfs,
 )
@@ -119,8 +121,12 @@ def copy_tree(
     if preserve:
         attrs += ",timestamps,ownership"
 
-        # Trying to copy selinux xattrs to overlayfs fails with "Operation not supported" in containers.
-        if statfs(os.fspath(dst.parent)) != OVERLAYFS_SUPER_MAGIC or not tree_has_selinux_xattr(src):
+        # Skip xattr preservation when source has selinux xattrs and either:
+        # - Destination is overlayfs (copying selinux xattrs fails with ENOTSUP), or
+        # - We lack CAP_MAC_ADMIN capability (required to set security.* xattrs)
+        if not tree_has_selinux_xattr(src) or (
+            statfs(os.fspath(dst.parent)) != OVERLAYFS_SUPER_MAGIC and have_effective_cap(CAP_MAC_ADMIN)
+        ):
             attrs += ",xattr"
 
     def copy() -> None:
